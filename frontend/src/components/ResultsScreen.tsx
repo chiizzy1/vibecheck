@@ -154,17 +154,6 @@ export function ResultsScreen({ callId, blobs, onReset }: Readonly<Props>) {
           <h2 className="text-2xl font-bold tracking-tight">VibeCheck</h2>
         </div>
         <div className="flex items-center gap-12">
-          <nav className="hidden md:flex items-center gap-8">
-            <a className="text-primary font-medium" href="#">
-              Dashboard
-            </a>
-            <a className="text-slate-400 hover:text-white transition-colors" href="#">
-              History
-            </a>
-            <a className="text-slate-400 hover:text-white transition-colors" href="#">
-              Creators
-            </a>
-          </nav>
           <div className="flex items-center gap-4">
             <motion.button
               whileHover={{ scale: 1.02 }}
@@ -176,13 +165,6 @@ export function ResultsScreen({ callId, blobs, onReset }: Readonly<Props>) {
               <ArrowLeft className="w-4 h-4" />
               Restart Session
             </motion.button>
-            <div className="size-10 rounded-full border-2 border-primary/50 overflow-hidden">
-              <img
-                className="w-full h-full object-cover"
-                alt="Creator profile avatar"
-                src="https://lh3.googleusercontent.com/aida-public/AB6AXuBmkVa3QEVqho2DbwlnDnI2eg_JKWQhXRGvCA1ZrOSdY5wGI19zu1ELHzpQkS4723wNhlvf8Q1RQoxjxY7O8iBgUeQ2prEtSSd-kzugtd9dHYXHI38o_viCde_Q6RBE8r20gYzINwwIw7Yb4kL6lH6pSLtCD4o2DoxK07FbnMbmoqCe2vTcB7agyibRy43ukont1X5tYsbINkKKB85JokYfyV8DMXMbkOSVoYzVyGeZc5eCfyJQBMgmXeoIYfTlYSw_yJ64JDH4ps6-"
-              />
-            </div>
           </div>
         </div>
       </header>

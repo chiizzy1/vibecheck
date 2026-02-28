@@ -403,17 +403,6 @@ function SessionUI({
           </div>
         </div>
         <div className="flex items-center gap-6">
-          <div className="hidden md:flex items-center gap-8 mr-4">
-            <a className="text-sm font-medium hover:text-primary transition-colors text-slate-300" href="#">
-              History
-            </a>
-            <a className="text-sm font-medium hover:text-primary transition-colors text-slate-300" href="#">
-              Presets
-            </a>
-            <a className="text-sm font-medium hover:text-primary transition-colors text-slate-300" href="#">
-              Library
-            </a>
-          </div>
           <button
             onClick={onEndSession}
             className="flex items-center justify-center gap-2 px-6 py-2 rounded-full glassmorphism border border-white/10 hover:bg-white/10 transition-all text-sm font-bold"
@@ -421,15 +410,6 @@ function SessionUI({
             <X className="w-4 h-4" />
             End Session
           </button>
-          <div className="size-10 rounded-full border-2 border-primary/50 p-0.5 shrink-0">
-            <div
-              className="w-full h-full rounded-full bg-cover bg-center"
-              style={{
-                backgroundImage:
-                  "url('https://lh3.googleusercontent.com/aida-public/AB6AXuAXa4clraO3oE5yWlHHdSCH4yvQOxW4PLgkzlaWY4mkm7Uf_0oae-s5ezS0gCPJUCIEcJ6-_iCnaYkp98r4oS4akK1jjfflRR9S7m1uyu5MGKnOo01wJJGfk4viQiQ9RA6NRvWew48-y-q761pCogclN0vtVAoUqunPqCJ5ls8G6DlkIb60ss4cSGIwOmBvCw8Hi3KLmI3cfitHKLjJsETgP2elgw5xm-GfzWLLOHqWVax2QDpjlFI0sBgEQQjnyjzxue3iKqrCyAxu')",
-              }}
-            ></div>
-          </div>
         </div>
       </header>
 
