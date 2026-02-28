@@ -103,7 +103,7 @@ All models are integrated through the **Vision Agents SDK** running on the **Str
 
 - Node.js 18+
 - Python 3.10+
-- API keys: Stream, Moondream, Deepgram
+- API keys: Stream (GetStream), Gemini, Moondream, Deepgram
 
 ### 1. Backend
 
