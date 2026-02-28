@@ -2,10 +2,9 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ModeSelector } from "./components/ModeSelector";
 import { TopicInput } from "./components/TopicInput";
-import { VibeSession } from "./components/VibeSession";
-import { ResultsScreen } from "./components/ResultsScreen";
-import type { TakeBlob } from "./components/ResultsScreen";
-import "./App.css";
+import { VibeSession } from "./components/session/VibeSession";
+import { ResultsScreen } from "./components/results/ResultsScreen";
+import type { TakeBlob } from "./components/results/ResultsScreen";
 
 export type Mode = "director" | "bestie" | "roast";
 
@@ -88,13 +87,20 @@ export default function App() {
         {screen === "results" && sessionEnd && (
           <motion.div
             key="results"
-            initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            exit={{ opacity: 0, filter: "blur(4px)" }}
+            initial={{ opacity: 0, y: 10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, filter: "blur(10px)", scale: 0.95 }}
             transition={{ type: "spring", duration: 0.45, bounce: 0 }}
             className="w-full h-full flex"
           >
-            <ResultsScreen callId={sessionEnd.callId} blobs={sessionEnd.blobs} onReset={handleReset} />
+            <ResultsScreen
+              key="results"
+              mode={mode}
+              topic={topic}
+              callId={sessionEnd.callId}
+              blobs={sessionEnd.blobs}
+              onReset={handleReset}
+            />
           </motion.div>
         )}
       </AnimatePresence>
