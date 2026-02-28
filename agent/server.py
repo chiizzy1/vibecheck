@@ -118,6 +118,17 @@ async def get_live_stats(call_id: str):
     }
 
 
+@app.get("/session/directors-cut/{call_id}")
+async def get_directors_cut(call_id: str):
+    """
+    Return the Director's Cut comparative analysis for the Results screen.
+    Compares all takes across metrics and provides actionable insights.
+    """
+    from tools.session import generate_directors_cut
+
+    return await generate_directors_cut()
+
+
 @app.get("/session/results/{call_id}")
 async def get_results(call_id: str):
     """

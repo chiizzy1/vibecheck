@@ -78,3 +78,111 @@ async def get_session_summary() -> Dict[str, Any]:
             f"Duration: {best['duration_seconds']:.1f}s."
         ),
     }
+
+
+async def generate_directors_cut() -> Dict[str, Any]:
+    """
+    Generate a comparative 'Director's Cut' analysis of all takes.
+    Identifies per-take strengths, weaknesses, and gives actionable
+    advice for the next recording session.
+    """
+    takes: List[Dict] = session_store["takes"]
+    if not takes:
+        return {"status": "no_takes", "insights": [], "verdict": "No takes recorded yet."}
+
+    if len(takes) == 1:
+        t = takes[0]
+        ec_note = "Great eye contact!" if t["eye_contact_pct"] >= 70 else "Try looking directly at the lens more."
+        en_note = "High energy throughout." if t["energy_score"] >= 6 else "Bring more energy and movement."
+        return {
+            "status": "single_take",
+            "insights": [
+                {
+                    "take": t["take_number"],
+                    "strength": ec_note if t["eye_contact_pct"] >= 70 else en_note,
+                    "weakness": en_note if t["energy_score"] < 6 else ec_note,
+                    "score": t["composite_score"],
+                }
+            ],
+            "verdict": (
+                f"Only one take recorded. Eye contact: {t['eye_contact_pct']:.0f}%, "
+                f"Energy: {t['energy_score']:.1f}/10. "
+                f"Film a second take to unlock comparative analysis."
+            ),
+            "next_take_advice": f"{ec_note} {en_note}",
+        }
+
+    # Multi-take comparative analysis
+    best = max(takes, key=lambda t: t["composite_score"])
+    worst = min(takes, key=lambda t: t["composite_score"])
+    best_ec = max(takes, key=lambda t: t["eye_contact_pct"])
+    best_en = max(takes, key=lambda t: t["energy_score"])
+    most_smiles = max(takes, key=lambda t: t["smile_count"])
+
+    insights = []
+    for t in takes:
+        strengths = []
+        weaknesses = []
+
+        if t["eye_contact_pct"] >= 70:
+            strengths.append(f"Strong eye contact ({t['eye_contact_pct']:.0f}%)")
+        elif t["eye_contact_pct"] < 50:
+            weaknesses.append(f"Low eye contact ({t['eye_contact_pct']:.0f}%)")
+
+        if t["energy_score"] >= 6:
+            strengths.append(f"High energy ({t['energy_score']:.1f}/10)")
+        elif t["energy_score"] < 4:
+            weaknesses.append(f"Low energy ({t['energy_score']:.1f}/10)")
+
+        if t["smile_count"] >= 3:
+            strengths.append(f"{t['smile_count']} genuine smiles")
+        elif t["smile_count"] == 0:
+            weaknesses.append("No smiles detected")
+
+        insights.append({
+            "take": t["take_number"],
+            "score": t["composite_score"],
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "is_best": t["take_number"] == best["take_number"],
+        })
+
+    # Build the verdict
+    parts = [f"Take {best['take_number']} is your best overall (score: {best['composite_score']:.1f}/10)."]
+
+    if best_ec["take_number"] != best["take_number"]:
+        parts.append(
+            f"Take {best_ec['take_number']} had the best eye contact ({best_ec['eye_contact_pct']:.0f}%)."
+        )
+    if best_en["take_number"] != best["take_number"]:
+        parts.append(
+            f"Take {best_en['take_number']} had the highest energy ({best_en['energy_score']:.1f}/10)."
+        )
+
+    # Build next-take advice by combining the best attributes
+    advice_parts = []
+    if best_ec["take_number"] != best_en["take_number"]:
+        advice_parts.append(
+            f"Combine Take {best_ec['take_number']}'s eye contact "
+            f"with Take {best_en['take_number']}'s energy for a perfect take."
+        )
+    if worst["eye_contact_pct"] < 50:
+        advice_parts.append("Focus on looking directly at the lens, not the screen.")
+    if worst["energy_score"] < 4:
+        advice_parts.append("Move more, use hand gestures, and vary your vocal tone.")
+    if not advice_parts:
+        advice_parts.append("You're already looking great — one more take to nail the timing.")
+
+    return {
+        "status": "analyzed",
+        "total_takes": len(takes),
+        "insights": insights,
+        "verdict": " ".join(parts),
+        "next_take_advice": " ".join(advice_parts),
+        "best_take": best["take_number"],
+        "highlight_reel": {
+            "best_eye_contact": {"take": best_ec["take_number"], "value": best_ec["eye_contact_pct"]},
+            "best_energy": {"take": best_en["take_number"], "value": best_en["energy_score"]},
+            "most_smiles": {"take": most_smiles["take_number"], "value": most_smiles["smile_count"]},
+        },
+    }
