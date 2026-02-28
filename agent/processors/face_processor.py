@@ -203,6 +203,9 @@ class FaceProcessor(VideoProcessorPublisher):
                     self._eye_contact_notified = True
 
             # ── Energy (frame-to-frame motion) tracking ─────────────────────
+            if self._prev_gray is not None and self._prev_gray.shape != gray.shape:
+                # Frame resolution changed — discard stale reference to avoid size mismatch
+                self._prev_gray = None
             if self._prev_gray is not None:
                 diff = cv2.absdiff(gray, self._prev_gray)
                 motion = float(np.mean(diff))

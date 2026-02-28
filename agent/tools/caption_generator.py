@@ -1,9 +1,9 @@
 """
 Caption generator tool — creates TikTok-ready captions and hashtags.
-Called by the LLM at the end of a session.
+Called by the LLM at the end of a session, or auto-triggered by the results endpoint.
 """
 
-import os
+import random
 from typing import Dict
 
 # Aesthetic → hashtag bundles (extend as needed)
@@ -39,16 +39,18 @@ async def generate_caption(vibe_description: str, video_topic: str) -> Dict[str,
     vibe_lower = vibe_description.lower()
 
     # Pick matching aesthetic hashtag bundle
+    matched_aesthetic = "default"
     matched_tags = AESTHETIC_HASHTAGS["default"]
     for aesthetic, tags in AESTHETIC_HASHTAGS.items():
-        if aesthetic in vibe_lower:
+        if aesthetic != "default" and aesthetic in vibe_lower:
+            matched_aesthetic = aesthetic
             matched_tags = tags
             break
 
     # Build hashtag string
     all_tags = matched_tags + UNIVERSAL_TAGS
     # Deduplicate while preserving order
-    seen = set()
+    seen: set = set()
     unique_tags = []
     for t in all_tags:
         if t not in seen:
@@ -57,9 +59,50 @@ async def generate_caption(vibe_description: str, video_topic: str) -> Dict[str,
 
     hashtag_string = " ".join(unique_tags[:10])  # TikTok sweet spot: 8-10 tags
 
-    # Caption template (LLM will refine this in its spoken response,
-    # but we return a structured starting point)
-    caption = f"{video_topic} {hashtag_string}"
+    # Aesthetic-aware caption openers for TikTok-style copy
+    AESTHETIC_OPENERS: Dict[str, list] = {
+        "dark academia":        [
+            f"dark academia {video_topic} era 🕯️📚",
+            f"POV: you discovered {video_topic} and now you're a different person 📖",
+            f"the {video_topic} aesthetic is taking over and I'm not sorry 🕯️",
+        ],
+        "clean girl":           [
+            f"clean girl {video_topic} check ✨",
+            f"that quiet luxury {video_topic} moment we needed 🤍",
+            f"POV: effortless {video_topic} energy ✨",
+        ],
+        "cottagecore":          [
+            f"cottagecore {video_topic} and I'm at peace 🌿",
+            f"soft life {video_topic} era has arrived 🍄",
+        ],
+        "streetwear":           [
+            f"streetwear {video_topic} fit check 🔥",
+            f"the drip on this {video_topic} is not up for debate 👟",
+        ],
+        "y2k":                  [
+            f"y2k {video_topic} throwback loading… 💿",
+            f"2000s called, they want their {video_topic} back 📼",
+        ],
+        "indie sleaze":         [
+            f"indie sleaze {video_topic} nostalgia hit different 🎸",
+        ],
+        "coastal grandmother":  [
+            f"coastal grandmother {video_topic} and thriving 🌊",
+            f"quiet luxury {video_topic} moment 🤍",
+        ],
+    }
+
+    GENERIC_OPENERS = [
+        f"POV: {video_topic} ✨",
+        f"not me trying {video_topic} and actually loving it 💀",
+        f"we need to talk about {video_topic} 💬",
+        f"this {video_topic} era has arrived and I'm not looking back 🔥",
+        f"real ones know: {video_topic} hits different 🎬",
+    ]
+
+    openers = AESTHETIC_OPENERS.get(matched_aesthetic, GENERIC_OPENERS)
+    caption_body = random.choice(openers)
+    caption = f"{caption_body} {hashtag_string}"
 
     result = {
         "caption": caption,

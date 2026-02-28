@@ -100,21 +100,46 @@ export function ResultsScreen({ callId, blobs, onReset }: Readonly<Props>) {
     ? results.takes.reduce((a, b) => (a.composite_score >= b.composite_score ? a : b))
     : null;
 
-  const activeTakeBlob = bestTakeData ? blobs.find((b) => b.takeNumber === bestTakeData.take_number) : blobs[0];
+  const activeTakeBlob =
+    (bestTakeData ? blobs.find((b) => b.takeNumber === bestTakeData.take_number) : undefined) ?? blobs[0] ?? null;
+
+  // Derive a stable key for the active blob to use as a dependency
+  const activeBlobKey = activeTakeBlob ? `${activeTakeBlob.takeNumber}-${activeTakeBlob.blob.size}` : null;
 
   useEffect(() => {
-    if (activeTakeBlob && videoRef.current) {
-      const url = URL.createObjectURL(activeTakeBlob.blob);
-      videoRef.current.src = url;
-      return () => URL.revokeObjectURL(url);
+    if (!activeTakeBlob || !videoRef.current) {
+      console.log(`[VC:playback] skipped mount. blob present? ${!!activeTakeBlob}, video mounted? ${!!videoRef.current}`);
+      return;
     }
-  }, [activeTakeBlob]);
+
+    console.log(
+      `[VC:playback] Setting video src. blob size=${activeTakeBlob.blob.size} type="${activeTakeBlob.blob.type}" duration=${activeTakeBlob.duration}`,
+    );
+    const url = URL.createObjectURL(activeTakeBlob.blob);
+    const vid = videoRef.current;
+    vid.src = url;
+    vid.load();
+    vid.onloadeddata = () => {
+      console.log("[VC:playback] Video loaded — seeking to 0.001s for first-frame preview");
+      vid.currentTime = 0.001;
+    };
+    vid.onerror = () => console.error("[VC:playback] video element error:", vid.error);
+    return () => URL.revokeObjectURL(url);
+  }, [activeBlobKey, loading]);
 
   const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) videoRef.current.pause();
-      else videoRef.current.play();
-      setIsPlaying(!isPlaying);
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      videoRef.current
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch((e) => {
+          console.error("[VC:playback] play() rejected:", e);
+          setIsPlaying(false);
+        });
     }
   };
 
@@ -191,6 +216,7 @@ export function ResultsScreen({ callId, blobs, onReset }: Readonly<Props>) {
                 <video
                   ref={videoRef}
                   className="w-full h-full object-cover"
+                  preload="auto"
                   onEnded={() => setIsPlaying(false)}
                   onTimeUpdate={(e) => {
                     const vid = e.currentTarget;
@@ -227,7 +253,9 @@ export function ResultsScreen({ callId, blobs, onReset }: Readonly<Props>) {
                       : "00:00 / 00:00"}
                   </span>
                 </div>
-                <p className="text-sm font-bold uppercase tracking-widest text-primary">Best Take: Mastered</p>
+                <p className="text-sm font-bold uppercase tracking-widest text-primary">
+                  {bestTakeData ? `Best Take Score: ${bestTakeData.composite_score.toFixed(1)}/10` : "Preview"}
+                </p>
               </div>
             </div>
             {/* Download Best Take CTA */}
@@ -267,17 +295,23 @@ export function ResultsScreen({ callId, blobs, onReset }: Readonly<Props>) {
                     r="58"
                     stroke="currentColor"
                     strokeDasharray="364"
-                    strokeDashoffset={364 - (364 * (bestTakeData?.eye_contact_pct ?? 87)) / 100}
+                    strokeDashoffset={364 - (364 * (bestTakeData?.eye_contact_pct ?? 0)) / 100}
                     strokeWidth="8"
                   />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                   <span className="text-3xl font-black">
-                    <AnimatedCounter value={bestTakeData?.eye_contact_pct ?? 87} />%
+                    <AnimatedCounter value={bestTakeData?.eye_contact_pct ?? 0} />%
                   </span>
                 </div>
               </div>
-              <p className="text-sm text-primary">High engagement detected throughout the take.</p>
+              <p className="text-sm text-primary">
+                {(bestTakeData?.eye_contact_pct ?? 0) >= 70
+                  ? "High engagement detected throughout the take."
+                  : (bestTakeData?.eye_contact_pct ?? 0) >= 40
+                    ? "Moderate eye contact — try looking at the lens more."
+                    : "Low eye contact — focus on the camera lens."}
+              </p>
             </div>
 
             {/* Energy Score Bar Chart */}
@@ -286,20 +320,29 @@ export function ResultsScreen({ callId, blobs, onReset }: Readonly<Props>) {
                 <div>
                   <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">Energy Score</p>
                   <h3 className="text-3xl font-black text-accent">
-                    <AnimatedCounter value={bestTakeData?.energy_score ?? 9.1} decimal={1} />
+                    <AnimatedCounter value={bestTakeData?.energy_score ?? 0} decimal={1} />
                     <span className="text-sm text-slate-500">/10</span>
                   </h3>
                 </div>
                 <Zap className="w-6 h-6 text-accent" />
               </div>
               <div className="flex items-end gap-1.5 h-20">
-                <div className="flex-1 bg-accent/20 rounded-t-sm" style={{ height: "40%" }}></div>
-                <div className="flex-1 bg-accent/40 rounded-t-sm" style={{ height: "60%" }}></div>
-                <div className="flex-1 bg-accent/60 rounded-t-sm" style={{ height: "80%" }}></div>
-                <div className="flex-1 bg-accent rounded-t-sm shadow-[0_0_10px_#f20db4]" style={{ height: "95%" }}></div>
-                <div className="flex-1 bg-accent/80 rounded-t-sm" style={{ height: "85%" }}></div>
-                <div className="flex-1 bg-accent/50 rounded-t-sm" style={{ height: "55%" }}></div>
-                <div className="flex-1 bg-accent/30 rounded-t-sm" style={{ height: "30%" }}></div>
+                {(() => {
+                  const score = bestTakeData?.energy_score ?? 0;
+                  const pct = Math.min(score * 10, 100);
+                  const bars = [0.3, 0.5, 0.7, 1.0, 0.85, 0.6, 0.35];
+                  return bars.map((mult, i) => {
+                    const h = Math.max(pct * mult, 4);
+                    const peak = i === 3;
+                    return (
+                      <div
+                        key={i}
+                        className={`flex-1 rounded-t-sm ${peak ? "bg-accent shadow-[0_0_10px_#f20db4]" : `bg-accent/${Math.round(mult * 100)}`}`}
+                        style={{ height: `${h}%` }}
+                      />
+                    );
+                  });
+                })()}
               </div>
             </div>
           </div>
@@ -319,11 +362,13 @@ export function ResultsScreen({ callId, blobs, onReset }: Readonly<Props>) {
               <div>
                 <p className="text-slate-400 text-sm font-medium">Aesthetic Profile</p>
                 <h4 className="text-3xl font-black italic tracking-tighter text-white capitalize">
-                  {results?.aesthetic || "Dark Academia"}
+                  {results?.aesthetic || "Analyzing…"}
                 </h4>
               </div>
               <p className="text-xs text-slate-400 max-w-xs">
-                Mood: Intellectual, Somber, Refined. Lighting matches peak trending visual styles for educational storytelling.
+                {results?.aesthetic
+                  ? `Your aesthetic profile was detected as "${results.aesthetic}". This influences caption style and mood analysis.`
+                  : "No aesthetic profile was detected for this session."}
               </p>
             </div>
 
@@ -334,9 +379,7 @@ export function ResultsScreen({ callId, blobs, onReset }: Readonly<Props>) {
                 <p className="font-bold text-sm uppercase tracking-widest">Generated TikTok Caption</p>
               </div>
               <div className="bg-black/40 p-5 rounded-lg border border-white/5 text-sm leading-relaxed italic text-slate-300 relative group">
-                {results?.caption?.caption
-                  ? `"${results.caption.caption}"`
-                  : `"POV: You've finally mastered the dark academia aesthetic for your setup 🕯️📚 diving deep into the vibes today. Which look should I try next? #vibecheck #darkacademia #creator #aesthetic #cinematic"`}
+                {results?.caption?.caption ? `"${results.caption.caption}"` : "No caption generated for this session."}
                 <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg pointer-events-none"></div>
               </div>
               <button

@@ -63,6 +63,17 @@ async def start_session(req: StartSessionRequest):
     call_id = f"vibecheck-{uuid.uuid4().hex[:8]}"
     user_id = f"creator-{uuid.uuid4().hex[:6]}"
 
+    # Reset the global session store so old takes don't bleed into new sessions
+    from tools.session import session_store
+    import tools.caption_generator as caption_mod
+    session_store["takes"] = []
+    session_store["topic"] = req.topic
+    session_store["mode"] = req.mode
+    session_store["eye_contact_pct"] = 0
+    session_store["energy_score"] = 0
+    session_store["smile_count"] = 0
+    caption_mod._last_caption = None
+
     # Generate frontend user token
     client = getstream_sdk.Stream(
         api_key=STREAM_API_KEY,
@@ -118,6 +129,21 @@ async def get_live_stats(call_id: str):
     }
 
 
+@app.post("/session/end/{call_id}")
+async def end_session(call_id: str):
+    """
+    Signal session end — cancels the agent task to stop Gemini retry loops
+    from blocking the asyncio event loop before the results page loads.
+    """
+    for task in list(_active_agents.values()):
+        if not task.done():
+            task.cancel()
+    _active_agents.clear()
+    # Yield to the event loop so cancellations can propagate
+    await asyncio.sleep(0.3)
+    return {"status": "ended"}
+
+
 @app.get("/session/directors-cut/{call_id}")
 async def get_directors_cut(call_id: str):
     """
@@ -136,13 +162,39 @@ async def get_results(call_id: str):
     Reads from the shared session_store (works fine for single-session hackathon demos).
     """
     from tools.session import session_store
-    from tools.caption_generator import _last_caption  # type: ignore[attr-defined]
+    import tools.caption_generator as caption_mod  # module ref so we always see the live value
+
+    # Auto-generate caption if the LLM never called the tool (e.g. agent crashed)
+    if not caption_mod._last_caption:
+        aesthetic = session_store.get("aesthetic", "")
+        topic = session_store.get("topic", "")
+        await caption_mod.generate_caption(aesthetic or "general", topic or "my video")
+
+    takes = list(session_store.get("takes", []))
+
+    # If the LLM never called score_take_tool (Gemini crashed), synthesize a take
+    # directly from the FaceProcessor sensor data that was written to session_store
+    # every frame via OpenCV — no LLM needed for those metrics.
+    if not takes:
+        ec = float(session_store.get("eye_contact_pct", 0))
+        en = float(session_store.get("energy_score", 0))
+        sm = int(session_store.get("smile_count", 0))
+        if ec > 0 or en > 0 or sm > 0:
+            composite = (ec / 100) * 4.0 + (en / 10) * 3.5 + min(sm / 3, 1) * 2.5
+            takes = [{
+                "take_number": 1,
+                "eye_contact_pct": round(ec, 1),
+                "energy_score": round(en, 1),
+                "smile_count": sm,
+                "duration_seconds": 0,
+                "composite_score": round(composite, 2),
+            }]
 
     return {
         "call_id": call_id,
         "topic": session_store.get("topic", ""),
         "mode": session_store.get("mode", "director"),
-        "takes": session_store.get("takes", []),
+        "takes": takes,
         "aesthetic": session_store.get("aesthetic", ""),
-        "caption": _last_caption,
+        "caption": caption_mod._last_caption,
     }

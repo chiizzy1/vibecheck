@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import fixWebmDuration from "fix-webm-duration";
 import { motion } from "framer-motion";
 import { Video, Scissors, Eye, CheckCircle2, Clapperboard, Sparkles, X, ChevronDown } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
@@ -116,6 +117,10 @@ export function VibeSession({ mode, topic, onReset, onSessionEnd }: Readonly<Pro
 
   const blobsRef = useRef<TakeBlob[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  // Tracks a promise that resolves when the current take's blob is fully saved.
+  // Set on EVERY mr.stop() call (cut OR session end) so handleEndSession
+  // always waits for fixWebmDuration before transitioning to results.
+  const pendingBlobRef = useRef<Promise<void>>(Promise.resolve());
 
   const addLog = (msg: string) => {
     setLog((prev) => [...prev.slice(-49), { id: Math.random().toString(36), text: msg, time: Date.now() }]);
@@ -143,8 +148,24 @@ export function VibeSession({ mode, topic, onReset, onSessionEnd }: Readonly<Pro
         });
 
         const streamCall = streamClient.call("default", call_id);
-        await Promise.all([streamCall.camera.enable(), streamCall.microphone.enable()]);
-        await streamCall.join({ create: true });
+        // Join first, then enable devices — enabling before join can cause the
+        // WebRTC negotiation to hang waiting for a connection that isn't established yet.
+        await Promise.race([
+          streamCall.join({ create: true }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Stream SDK join timed out after 20s")), 20000)),
+        ]);
+        // Enable camera + mic with a timeout — non-fatal so session still starts
+        // even if the browser takes long to grant device access.
+        try {
+          await Promise.race([
+            Promise.all([streamCall.camera.enable(), streamCall.microphone.enable()]),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("Camera/mic enable timed out after 10s")), 10000),
+            ),
+          ]);
+        } catch (e) {
+          console.warn("[VC:init] Camera/mic enable failed — continuing anyway:", e);
+        }
 
         if (!mounted) return;
 
@@ -165,16 +186,27 @@ export function VibeSession({ mode, topic, onReset, onSessionEnd }: Readonly<Pro
     };
   }, [mode, topic]);
 
-  const handleEndSession = () => {
-    // Stop any active recording so the final take's blob is saved
+  const handleEndSession = async () => {
+    // Signal session end to backend — stops the Gemini retry loop.
+    fetch(`${API_URL}/session/end/${callId}`, { method: "POST" }).catch(() => {});
+
+    // If recording is still active, stop it and set up a pending promise.
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      let resolve!: () => void;
+      pendingBlobRef.current = new Promise<void>((res) => {
+        resolve = res;
+      });
+      // Store resolve so onstop can signal completion
+      (mediaRecorderRef.current as MediaRecorder & { _resolveBlob?: () => void })._resolveBlob = resolve;
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current = null;
     }
-    // Small delay to let `onstop` fire and push the final blob
-    setTimeout(() => {
-      onSessionEnd(callId, blobsRef.current);
-    }, 200);
+
+    // Always await pendingBlobRef — covers both the mid-recording stop above
+    // and a previous Cut that may still be running fixWebmDuration.
+    await Promise.race([pendingBlobRef.current, new Promise<void>((resolve) => setTimeout(resolve, 10000))]);
+
+    onSessionEnd(callId, [...blobsRef.current]);
   };
 
   // Cleanup on unmount — stop recording if user navigates away
@@ -212,6 +244,7 @@ export function VibeSession({ mode, topic, onReset, onSessionEnd }: Readonly<Pro
           addLog={addLog}
           blobsRef={blobsRef}
           mediaRecorderRef={mediaRecorderRef}
+          pendingBlobRef={pendingBlobRef}
         />
       </StreamCall>
     </StreamVideo>
@@ -241,6 +274,7 @@ function SessionUI({
   addLog,
   blobsRef,
   mediaRecorderRef,
+  pendingBlobRef,
 }: Readonly<{
   mode: Mode;
   callId: string;
@@ -249,6 +283,7 @@ function SessionUI({
   addLog: (msg: string) => void;
   blobsRef: React.RefObject<TakeBlob[]>;
   mediaRecorderRef: React.RefObject<MediaRecorder | null>;
+  pendingBlobRef: React.RefObject<Promise<void>>;
 }>) {
   const { useLocalParticipant, useRemoteParticipants } = useCallStateHooks();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -267,25 +302,26 @@ function SessionUI({
     takes: 0,
   });
 
-  const chunksRef = useRef<Blob[]>([]);
   const takeStartRef = useRef<number>(0);
-  const rawStreamRef = useRef<MediaStream | null>(null);
+  // Audio-only stream for recording — avoids camera conflict with Stream SDK on Windows
+  const rawAudioRef = useRef<MediaStream | null>(null);
 
-  // Acquire a raw getUserMedia stream for MediaRecorder (video + audio)
+  // Acquire a microphone-only stream for recording audio.
+  // Video comes from localParticipant.videoStream (already confirmed working on screen).
   useEffect(() => {
     let cancelled = false;
     navigator.mediaDevices
-      .getUserMedia({ video: true, audio: true })
+      .getUserMedia({ video: false, audio: true })
       .then((stream) => {
-        if (!cancelled) rawStreamRef.current = stream;
+        if (!cancelled) rawAudioRef.current = stream;
       })
-      .catch((err) => console.warn("Could not get raw stream for recording:", err));
+      .catch((err) => console.warn("Could not get audio stream for recording:", err));
 
     return () => {
       cancelled = true;
-      if (rawStreamRef.current) {
-        rawStreamRef.current.getTracks().forEach((t) => t.stop());
-        rawStreamRef.current = null;
+      if (rawAudioRef.current) {
+        rawAudioRef.current.getTracks().forEach((t) => t.stop());
+        rawAudioRef.current = null;
       }
     };
   }, []);
@@ -324,62 +360,84 @@ function SessionUI({
   }, [localParticipant?.videoStream]);
 
   const startTake = () => {
+    if (!videoRef.current) {
+      addLog("⚠ No video feed yet — wait a moment");
+      return;
+    }
+
+    const mimeType =
+      ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t)) ??
+      "";
+
+    if (!mimeType) {
+      addLog("⚠ Recording not supported in this browser");
+      return;
+    }
+
     const newTake = takeCount + 1;
     setTakeCount(newTake);
     addLog(`🎬 Take ${newTake} action`);
-    takeStartRef.current = Date.now();
+
+    const startTime = Date.now();
+    takeStartRef.current = startTime;
     setRecordingTime(0);
 
-    // Use raw getUserMedia stream (video+audio) for recording,
-    // fall back to Stream SDK's videoStream if unavailable
-    const stream = rawStreamRef.current || localParticipant?.videoStream;
-    if (stream && window.MediaRecorder) {
-      try {
-        if (mediaRecorderRef.current && isRecording) {
-          mediaRecorderRef.current.stop();
-        }
-
-        chunksRef.current = [];
-
-        const mimeType =
-          ["video/webm;codecs=vp9", "video/webm", "video/mp4;codecs=avc1", "video/mp4"].find((t) =>
-            MediaRecorder.isTypeSupported(t),
-          ) ?? "";
-
-        if (!mimeType) {
-          addLog("⚠ Recording not supported in this browser");
-          return;
-        }
-
-        const mr = new MediaRecorder(stream, { mimeType });
-
-        mr.ondataavailable = (e) => {
-          if (e.data.size > 0) chunksRef.current.push(e.data);
-        };
-
-        mr.onstop = () => {
-          const blob = new Blob(chunksRef.current, { type: "video/webm" });
-          const duration = (Date.now() - takeStartRef.current) / 1000;
-          if (blobsRef.current) {
-            blobsRef.current = [
-              ...blobsRef.current.filter((b) => b.takeNumber !== newTake),
-              { takeNumber: newTake, blob, duration },
-            ];
-          }
-          addLog(`✓ Take ${newTake} saved (${duration.toFixed(0)}s)`);
-        };
-
-        mr.start(1000);
-        mediaRecorderRef.current = mr;
-        setIsRecording(true);
-      } catch (e) {
-        console.warn("MediaRecorder start failed:", e);
-      }
+    // Stop any previous recorder — its onstop closure already captured its own state.
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
     }
+
+    // Capture directly from the live WebRTC video stream — this is far more reliable
+    // than the canvas approach because the MediaStream is always active and Chrome
+    // can encode it without needing a visible DOM element.
+    const videoTracks = (videoRef.current.srcObject as MediaStream | null)?.getVideoTracks() ?? [];
+    const audioTracks = rawAudioRef.current?.getAudioTracks() ?? [];
+
+    if (videoTracks.length === 0) {
+      addLog("⚠ No video track available — ensure camera is enabled");
+      return;
+    }
+
+    const combinedStream = new MediaStream([...videoTracks, ...audioTracks]);
+
+    const takeChunks: Blob[] = [];
+    const mr = new MediaRecorder(combinedStream, { mimeType });
+
+    mr.ondataavailable = (e) => {
+      if (e.data.size > 0) takeChunks.push(e.data);
+    };
+
+    mr.onstop = async () => {
+      const durationMs = Date.now() - startTime;
+      const rawBlob = new Blob(takeChunks, { type: mimeType });
+      // MediaRecorder writes WebM with duration=Infinity — browsers refuse to render
+      // any frame from such files (Chromium bug #642012). Patch the header with the
+      // real duration so the file becomes seekable and the first frame shows.
+      const blob = mimeType.includes("webm") ? await fixWebmDuration(rawBlob, durationMs) : rawBlob;
+      const duration = durationMs / 1000;
+      if (blobsRef.current) {
+        blobsRef.current = [...blobsRef.current.filter((b) => b.takeNumber !== newTake), { takeNumber: newTake, blob, duration }];
+      }
+      addLog(`✓ Take ${newTake} saved (${duration.toFixed(0)}s)`);
+      // Resolve the pending promise so handleEndSession can proceed
+      const resolveBlob = (mr as MediaRecorder & { _resolveBlob?: () => void })._resolveBlob;
+      if (resolveBlob) resolveBlob();
+    };
+
+    mr.start(100); // Fire ondataavailable every 100ms for fine-grained chunks
+    mediaRecorderRef.current = mr;
+    setIsRecording(true);
   };
 
   const cutTake = () => {
     if (!isRecording || !mediaRecorderRef.current) return;
+    // Create a pending promise BEFORE stopping so handleEndSession can always
+    // await it, even if the user presses End Session right after Cut.
+    let resolve!: () => void;
+    pendingBlobRef.current = new Promise<void>((res) => {
+      resolve = res;
+    });
+    (mediaRecorderRef.current as MediaRecorder & { _resolveBlob?: () => void })._resolveBlob = resolve;
     mediaRecorderRef.current.stop();
     mediaRecorderRef.current = null;
     setIsRecording(false);
@@ -552,12 +610,12 @@ function SessionUI({
                     r="20"
                     stroke="currentColor"
                     strokeDasharray="125.6"
-                    strokeDashoffset="16.3"
+                    strokeDashoffset={125.6 - (125.6 * Math.min(liveStats.eye_contact_pct, 100)) / 100}
                     strokeWidth="4"
                   />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-[10px] font-bold">87%</span>
+                  <span className="text-[10px] font-bold">{liveStats.eye_contact_pct.toFixed(0)}%</span>
                 </div>
               </div>
             </div>
