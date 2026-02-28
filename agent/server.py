@@ -100,6 +100,24 @@ async def health():
     return {"status": "ok", "active_agents": len(_active_agents)}
 
 
+@app.get("/session/live/{call_id}")
+async def get_live_stats(call_id: str):
+    """
+    Return real-time metrics from the active session.
+    FaceProcessor writes eye_contact_pct, energy_score, smile_count
+    into session_store every frame. Frontend polls this every 2s.
+    """
+    from tools.session import session_store
+
+    return {
+        "eye_contact_pct": round(session_store.get("eye_contact_pct", 0), 1),
+        "energy_score": round(session_store.get("energy_score", 0), 1),
+        "smile_count": session_store.get("smile_count", 0),
+        "aesthetic": session_store.get("aesthetic", ""),
+        "takes": len(session_store.get("takes", [])),
+    }
+
+
 @app.get("/session/results/{call_id}")
 async def get_results(call_id: str):
     """

@@ -31,6 +31,82 @@ const MODE_CONFIG: Record<Mode, { label: string; color: string; bg: string }> = 
   roast: { label: "Roast Mode", color: "text-orange-500", bg: "bg-orange-500" },
 };
 
+const LOADING_STAGES = [
+  { message: "Waking up the AI Director…", icon: "🎬" },
+  { message: "Calibrating camera feed…", icon: "📷" },
+  { message: "Loading vision models…", icon: "🧠" },
+  { message: "Setting the vibe…", icon: "✨" },
+];
+
+function LoadingSequence({ mode }: { mode: Mode }) {
+  const [stageIndex, setStageIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const conf = MODE_CONFIG[mode];
+
+  useEffect(() => {
+    const stageTimer = setInterval(() => {
+      setStageIndex((prev) => (prev < LOADING_STAGES.length - 1 ? prev + 1 : prev));
+    }, 2500);
+    return () => clearInterval(stageTimer);
+  }, []);
+
+  useEffect(() => {
+    const progressTimer = setInterval(() => {
+      setProgress((prev) => Math.min(prev + 1, 100));
+    }, 100);
+    return () => clearInterval(progressTimer);
+  }, []);
+
+  const stage = LOADING_STAGES[stageIndex];
+
+  return (
+    <div className="flex flex-col items-center justify-center w-full h-full bg-background-dark text-white space-y-8">
+      {/* Mode Badge */}
+      <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 ${conf.color}`}>
+        <span className={`size-2 rounded-full ${conf.bg} shadow-[0_0_8px_currentColor]`}></span>
+        <span className="text-xs font-bold uppercase tracking-widest">{conf.label}</span>
+      </div>
+
+      {/* Pulsing icon */}
+      <motion.div
+        key={stageIndex}
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: "spring", stiffness: 300, damping: 20 }}
+        className="text-5xl"
+      >
+        {stage.icon}
+      </motion.div>
+
+      {/* Stage message */}
+      <AnimatePresence mode="wait">
+        <motion.p
+          key={stageIndex}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.3 }}
+          className="text-xl font-medium tracking-wide text-slate-200"
+        >
+          {stage.message}
+        </motion.p>
+      </AnimatePresence>
+
+      {/* Progress bar */}
+      <div className="w-64 h-1.5 bg-white/10 rounded-full overflow-hidden">
+        <motion.div
+          className="h-full iridescent-gradient rounded-full"
+          initial={{ width: 0 }}
+          animate={{ width: `${progress}%` }}
+          transition={{ duration: 0.1 }}
+        />
+      </div>
+
+      <p className="text-xs text-slate-500 font-mono tracking-wide">{progress < 100 ? `${progress}%` : "Almost there…"}</p>
+    </div>
+  );
+}
+
 export function VibeSession({ mode, topic, onReset, onSessionEnd }: Readonly<Props>) {
   const [client, setClient] = useState<StreamVideoClient | null>(null);
   const [call, setCall] = useState<Call | null>(null);
@@ -111,14 +187,7 @@ export function VibeSession({ mode, topic, onReset, onSessionEnd }: Readonly<Pro
   }, []);
 
   if (status === "connecting") {
-    return (
-      <div className="flex flex-col items-center justify-center w-full h-full bg-background-dark text-white space-y-6">
-        <div className="size-16 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
-        <p className="text-xl font-medium tracking-wide">
-          Starting VibeCheck in <span className="font-bold text-primary">{mode}</span> mode…
-        </p>
-      </div>
-    );
+    return <LoadingSequence mode={mode} />;
   }
 
   if (status === "error" || !client || !call) {
@@ -137,6 +206,7 @@ export function VibeSession({ mode, topic, onReset, onSessionEnd }: Readonly<Pro
       <StreamCall call={call}>
         <SessionUI
           mode={mode}
+          callId={callId}
           onEndSession={handleEndSession}
           log={log}
           addLog={addLog}
@@ -155,8 +225,17 @@ function formatTime(ms: number) {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
+interface LiveStats {
+  eye_contact_pct: number;
+  energy_score: number;
+  smile_count: number;
+  aesthetic: string;
+  takes: number;
+}
+
 function SessionUI({
   mode,
+  callId,
   onEndSession,
   log,
   addLog,
@@ -164,6 +243,7 @@ function SessionUI({
   mediaRecorderRef,
 }: Readonly<{
   mode: Mode;
+  callId: string;
   onEndSession: () => void;
   log: { id: string; text: string; time: number }[];
   addLog: (msg: string) => void;
@@ -179,6 +259,13 @@ function SessionUI({
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [isNotesOpen, setIsNotesOpen] = useState(false);
+  const [liveStats, setLiveStats] = useState<LiveStats>({
+    eye_contact_pct: 0,
+    energy_score: 0,
+    smile_count: 0,
+    aesthetic: "",
+    takes: 0,
+  });
 
   const chunksRef = useRef<Blob[]>([]);
   const takeStartRef = useRef<number>(0);
@@ -193,6 +280,23 @@ function SessionUI({
     }
     return () => clearInterval(interval);
   }, [isRecording]);
+
+  // Poll live metrics from backend every 2 seconds
+  useEffect(() => {
+    if (!callId) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/session/live/${callId}`);
+        if (res.ok) {
+          const data: LiveStats = await res.json();
+          setLiveStats(data);
+        }
+      } catch {
+        // Silently ignore — backend might not be ready yet
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [callId]);
 
   useEffect(() => {
     if (!localParticipant?.videoStream || !videoRef.current) return;
@@ -529,25 +633,31 @@ function SessionUI({
               )}
             </div>
 
-            {/* Sidebar Stats Footer — Confidence + Vibe Match */}
+            {/* Sidebar Stats Footer — Live Metrics from AI */}
             <div className="p-6 bg-primary/5 border-t border-glass-border shrink-0">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Confidence Score</p>
+                  <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Eye Contact</p>
                   <div className="flex items-center gap-2">
                     <div className="h-1 flex-1 bg-white/10 rounded-full overflow-hidden">
-                      <div className="h-full bg-primary w-[92%]"></div>
+                      <div
+                        className="h-full bg-primary transition-all duration-1000"
+                        style={{ width: `${Math.min(liveStats.eye_contact_pct, 100)}%` }}
+                      ></div>
                     </div>
-                    <span className="text-xs font-bold">92%</span>
+                    <span className="text-xs font-bold">{liveStats.eye_contact_pct.toFixed(0)}%</span>
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Vibe Match</p>
+                  <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Energy</p>
                   <div className="flex items-center gap-2">
                     <div className="h-1 flex-1 bg-white/10 rounded-full overflow-hidden">
-                      <div className="h-full bg-accent w-[78%]"></div>
+                      <div
+                        className="h-full bg-accent transition-all duration-1000"
+                        style={{ width: `${Math.min(liveStats.energy_score * 10, 100)}%` }}
+                      ></div>
                     </div>
-                    <span className="text-xs font-bold">78%</span>
+                    <span className="text-xs font-bold">{liveStats.energy_score.toFixed(1)}</span>
                   </div>
                 </div>
               </div>
@@ -561,12 +671,12 @@ function SessionUI({
               <span className="text-xl font-bold">{takeCount.toString().padStart(2, "0")}</span>
             </div>
             <div className="glassmorphism rounded-xl border border-glass-border p-3 flex flex-col justify-center items-center text-center">
-              <span className="text-xs text-slate-400 uppercase tracking-tighter font-bold">Storage</span>
-              <span className="text-xl font-bold">12GB</span>
+              <span className="text-xs text-slate-400 uppercase tracking-tighter font-bold">Smiles</span>
+              <span className="text-xl font-bold">{liveStats.smile_count}</span>
             </div>
             <div className="glassmorphism rounded-xl border border-glass-border p-3 flex flex-col justify-center items-center text-center">
-              <span className="text-xs text-slate-400 uppercase tracking-tighter font-bold">Script</span>
-              <span className="text-xl font-bold">82%</span>
+              <span className="text-xs text-slate-400 uppercase tracking-tighter font-bold">Vibe</span>
+              <span className="text-sm font-bold truncate w-full">{liveStats.aesthetic || "Analyzing…"}</span>
             </div>
           </div>
         </aside>
