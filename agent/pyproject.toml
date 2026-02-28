@@ -1,0 +1,26 @@
+[project]
+name = "vibecheck-agent"
+version = "0.1.0"
+requires-python = ">=3.13,<3.14"
+
+dependencies = [
+  "python-dotenv>=1.0",
+  "vision-agents",
+  "vision-agents-plugins-getstream",
+  "vision-agents-plugins-gemini",
+  "vision-agents-plugins-ultralytics",
+  "vision-agents-plugins-elevenlabs",
+  "vision-agents-plugins-deepgram",
+  "vision-agents-plugins-moondream",
+  "fastapi>=0.128.0",
+  "uvicorn>=0.38.0",
+]
+
+[tool.uv.sources]
+"vision-agents"                    = { path = "../../vision-agents/agents-core",           editable = true }
+"vision-agents-plugins-getstream"  = { path = "../../vision-agents/plugins/getstream",     editable = true }
+"vision-agents-plugins-gemini"     = { path = "../../vision-agents/plugins/gemini",        editable = true }
+"vision-agents-plugins-ultralytics"= { path = "../../vision-agents/plugins/ultralytics",   editable = true }
+"vision-agents-plugins-elevenlabs" = { path = "../../vision-agents/plugins/elevenlabs",    editable = true }
+"vision-agents-plugins-deepgram"   = { path = "../../vision-agents/plugins/deepgram",      editable = true }
+"vision-agents-plugins-moondream"  = { path = "../../vision-agents/plugins/moondream",     editable = true }

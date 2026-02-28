@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="#0a0a0a"/>
+  <!-- Outer ring -->
+  <circle cx="256" cy="256" r="168" fill="none" stroke="#00dc82" stroke-width="18"/>
+  <!-- Play triangle (camera / record) -->
+  <polygon points="216,178 216,334 362,256" fill="#00dc82"/>
+  <!-- Recording dot (red) -->
+  <circle cx="362" cy="150" r="38" fill="#ff4444"/>
+</svg>
