@@ -2,6 +2,10 @@
 
 **Your real-time AI director. No bad takes.**
 
+![VibeCheck Cover Image](./vibecheck.png)
+
+📖 **Read the full story:** [I Built an AI That Watches You Film TikToks and Coaches You in Real-Time](https://hashnode.com/edit/cmm6mqbzj001b2eoi68qlabau)
+
 VibeCheck watches you film through your webcam, coaches you live through your earbuds, scores every take, and generates your TikTok caption — so you never post a bad take again.
 
 Built for the **Vision Possible: Agent Protocol** hackathon by WeMakeDevs × VisionAgents (Feb 23 – Mar 1, 2026).
