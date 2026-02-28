@@ -352,14 +352,14 @@ export function ResultsScreen({ callId, blobs, onReset }: Readonly<Props>) {
                 <p className="font-bold text-sm uppercase tracking-widest">Generated TikTok Caption</p>
               </div>
               <div className="bg-black/40 p-5 rounded-lg border border-white/5 text-sm leading-relaxed italic text-slate-300 relative group">
-                {results?.caption
+                {results?.caption?.caption
                   ? `"${results.caption.caption}"`
                   : `"POV: You've finally mastered the dark academia aesthetic for your setup 🕯️📚 diving deep into the vibes today. Which look should I try next? #vibecheck #darkacademia #creator #aesthetic #cinematic"`}
                 <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg pointer-events-none"></div>
               </div>
               <button
                 onClick={() => {
-                  const text = results?.caption ? `${results.caption.caption}\n\n${results.caption.hashtags}` : "";
+                  const text = results?.caption?.caption ? `${results.caption.caption}\n\n${results.caption.hashtags}` : "";
                   if (text) handleCopy(text);
                 }}
                 className="w-full bg-primary/10 hover:bg-primary/20 border border-primary/40 py-3 rounded-lg flex items-center justify-center gap-2 font-bold transition-all"

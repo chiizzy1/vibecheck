@@ -269,6 +269,26 @@ function SessionUI({
 
   const chunksRef = useRef<Blob[]>([]);
   const takeStartRef = useRef<number>(0);
+  const rawStreamRef = useRef<MediaStream | null>(null);
+
+  // Acquire a raw getUserMedia stream for MediaRecorder (video + audio)
+  useEffect(() => {
+    let cancelled = false;
+    navigator.mediaDevices
+      .getUserMedia({ video: true, audio: true })
+      .then((stream) => {
+        if (!cancelled) rawStreamRef.current = stream;
+      })
+      .catch((err) => console.warn("Could not get raw stream for recording:", err));
+
+    return () => {
+      cancelled = true;
+      if (rawStreamRef.current) {
+        rawStreamRef.current.getTracks().forEach((t) => t.stop());
+        rawStreamRef.current = null;
+      }
+    };
+  }, []);
 
   // Timer effect
   useEffect(() => {
@@ -310,7 +330,9 @@ function SessionUI({
     takeStartRef.current = Date.now();
     setRecordingTime(0);
 
-    const stream = localParticipant?.videoStream;
+    // Use raw getUserMedia stream (video+audio) for recording,
+    // fall back to Stream SDK's videoStream if unavailable
+    const stream = rawStreamRef.current || localParticipant?.videoStream;
     if (stream && window.MediaRecorder) {
       try {
         if (mediaRecorderRef.current && isRecording) {
