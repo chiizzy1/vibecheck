@@ -101,6 +101,8 @@ pip install -r requirements.txt
 cat > .env << EOF
 STREAM_API_KEY=your_stream_api_key
 STREAM_API_SECRET=your_stream_api_secret
+GEMINI_API_KEY=your_gemini_key
+ELEVENLABS_API_KEY=your_elevenlabs_key
 MOONDREAM_API_KEY=your_moondream_key
 DEEPGRAM_API_KEY=your_deepgram_key
 EOF
